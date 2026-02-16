@@ -1,0 +1,1548 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>Firebase 聊天室 · 最終完整版</title>
+    <!-- Font Awesome 6 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Firebase SDK (compat) -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+    <style>
+        .msg-list::-webkit-scrollbar { width: 6px; }
+        .msg-list::-webkit-scrollbar-thumb { background: #cbd5e0; border-radius: 10px; }
+        .room-list::-webkit-scrollbar { width: 4px; }
+        .room-list::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 10px; }
+        .chat-image { max-width: 200px; max-height: 200px; border-radius: 8px; cursor: pointer; }
+        .chat-image:hover { opacity: 0.9; }
+        .avatar { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; }
+        .avatar-sm { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; }
+        .delete-msg-btn { opacity: 0.3; transition: opacity 0.2s; }
+        .delete-msg-btn:hover { opacity: 1; }
+        .action-btn { opacity: 0.7; transition: opacity 0.2s; margin-left: 4px; }
+        .action-btn:hover { opacity: 1; }
+        .room-item { cursor: pointer; }
+        .sub-tab { cursor: pointer; }
+        .sub-tab.active { background-color: #e0e7ff; color: #4338ca; border-color: #6366f1; }
+        .traffic-indicator { font-size: 0.75rem; background: #e2e8f0; padding: 2px 8px; border-radius: 9999px; color: #2d3748; }
+        /* 手機側邊欄 */
+        @media (max-width: 768px) {
+            .mobile-sidebar {
+                position: fixed;
+                left: 0;
+                top: 0;
+                bottom: 0;
+                width: 80%;
+                max-width: 300px;
+                background: white;
+                z-index: 50;
+                transform: translateX(-100%);
+                transition: transform 0.3s ease-in-out;
+                box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+            }
+            .mobile-sidebar.open {
+                transform: translateX(0);
+            }
+            .sidebar-overlay {
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0,0,0,0.5);
+                z-index: 40;
+            }
+            .sidebar-overlay.open {
+                display: block;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans antialiased">
+
+    <!-- 手機側邊欄遮罩 -->
+    <div id="sidebarOverlay" class="sidebar-overlay" onclick="toggleSidebar(false)"></div>
+
+    <!-- ========== 登入/註冊頁面 ========== -->
+    <div id="loginPage" class="min-h-screen flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-4xl flex flex-col md:flex-row overflow-hidden">
+            <div class="bg-gradient-to-br from-indigo-600 to-blue-500 text-white p-8 md:w-1/2 flex flex-col justify-between">
+                <div>
+                    <h2 class="text-3xl font-bold mb-2">Firebase 聊天室</h2>
+                    <p class="text-indigo-100">管理員: wangsumyuen (需手動建立)</p>
+                    <p class="text-indigo-100 text-sm mt-1">手機自適應 · 短ID · 高效壓縮</p>
+                    <p class="text-indigo-200 text-xs mt-2">基於 Firebase Realtime Database</p>
+                </div>
+                <div class="text-xs text-indigo-200 mt-6">
+                    <i class="fas fa-circle-info"></i> 使用者名稱不可重複，管理員名可依設定允許註冊
+                </div>
+            </div>
+            <div class="p-8 md:w-1/2 bg-white">
+                <div class="flex border-b border-gray-200 mb-6">
+                    <button id="loginTabBtn" class="flex-1 pb-3 text-sm font-medium text-indigo-600 border-b-2 border-indigo-600 transition">登入</button>
+                    <button id="registerTabBtn" class="flex-1 pb-3 text-sm font-medium text-gray-500 hover:text-gray-700 transition">註冊</button>
+                </div>
+                <div id="loginForm" class="space-y-5">
+                    <div>
+                        <label class="block text-sm text-gray-600 mb-1"><i class="fas fa-user mr-1"></i>使用者名稱</label>
+                        <input type="text" id="loginUsername" placeholder="例如: wangsumyuen" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-600 mb-1"><i class="fas fa-lock mr-1"></i>密碼</label>
+                        <input type="password" id="loginPassword" placeholder="••••••••" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 outline-none">
+                    </div>
+                    <button id="loginBtn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-lg transition shadow">登 入</button>
+                </div>
+                <div id="registerForm" class="space-y-5 hidden">
+                    <div>
+                        <label class="block text-sm text-gray-600 mb-1"><i class="fas fa-user-plus mr-1"></i>使用者名稱</label>
+                        <input type="text" id="regUsername" placeholder="使用者名稱" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-600 mb-1"><i class="fas fa-lock mr-1"></i>密碼</label>
+                        <input type="password" id="regPassword" placeholder="密碼" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-600 mb-1"><i class="fas fa-image mr-1"></i>頭像 (可選)</label>
+                        <div class="flex items-center space-x-3">
+                            <input type="file" id="regAvatarInput" accept="image/png, image/jpeg, image/gif, image/webp" class="hidden">
+                            <button id="regAvatarBtn" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm transition flex items-center">
+                                <i class="fas fa-upload mr-2"></i>選擇圖片
+                            </button>
+                            <span id="avatarFileName" class="text-xs text-gray-500">未選擇檔案</span>
+                        </div>
+                        <div id="avatarPreviewContainer" class="mt-2 hidden">
+                            <img id="avatarPreviewImg" src="#" alt="預覽" class="avatar border border-gray-300">
+                        </div>
+                    </div>
+                    <button id="registerBtn" class="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-2.5 rounded-lg transition shadow">註 冊</button>
+                </div>
+                <div id="loginMessage" class="mt-4 text-sm text-center h-5 text-red-500"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== 主聊天介面 ========== -->
+    <div id="chatPage" class="hidden h-screen flex flex-col bg-gray-50">
+        <header class="bg-white border-b border-gray-200 py-3 px-4 flex justify-between items-center shadow-sm">
+            <div class="flex items-center space-x-2">
+                <button id="menuToggleBtn" class="md:hidden text-gray-600 hover:text-indigo-600 p-2 rounded-full transition" title="選單"><i class="fas fa-bars"></i></button>
+                <i class="fas fa-comments text-indigo-600 text-xl hidden sm:inline"></i>
+                <h1 class="text-xl font-semibold text-gray-800 hidden sm:inline">即時聊天室</h1>
+                <span id="currentUserBadge" class="bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1">
+                    <img id="navAvatar" src="" class="avatar-sm hidden" alt="">
+                    <span id="navUsername"></span>
+                </span>
+                <span id="adminBadge" class="hidden bg-amber-100 text-amber-800 px-3 py-1 rounded-full text-xs font-medium"><i class="fas fa-crown mr-1"></i>管理員</span>
+            </div>
+            <div class="flex items-center space-x-2">
+                <span id="trafficDisplay" class="traffic-indicator hidden sm:inline-block" title="本工作階段流量 (發送/接收)">📤 0KB 📥 0KB</span>
+                <button id="editProfileBtn" class="text-gray-600 hover:text-indigo-600 p-2 rounded-full transition" title="修改資料"><i class="fas fa-cog"></i></button>
+                <button id="logoutBtn" class="flex items-center text-sm text-gray-600 hover:text-indigo-600 transition"><i class="fas fa-sign-out-alt mr-2"></i> 登出</button>
+            </div>
+        </header>
+
+        <div class="flex flex-1 overflow-hidden relative">
+            <!-- 左側房間列表 -->
+            <aside id="sidebar" class="w-1/4 bg-white border-r border-gray-200 flex flex-col overflow-hidden md:block mobile-sidebar">
+                <div class="bg-yellow-50 border-b border-yellow-200 p-2 text-xs text-yellow-800 flex items-center">
+                    <i class="fas fa-info-circle mr-1 flex-shrink-0"></i>
+                    <span>這是王心遠(David)和他的朋友一起做的。管理員可以管理任何功能和用戶，可刪除和增加用戶。</span>
+                </div>
+                <div class="p-4 bg-gray-50 border-b border-gray-200">
+                    <div class="flex justify-between items-center">
+                        <p class="text-xs text-gray-500 uppercase tracking-wider">房間列表</p>
+                        <div id="adminRoomToggle" class="hidden space-x-1 text-xs">
+                            <button id="showMyRoomsBtn" class="px-2 py-1 bg-indigo-100 text-indigo-700 rounded transition">我的房間</button>
+                            <button id="showAllRoomsBtn" class="px-2 py-1 bg-gray-100 text-gray-700 rounded transition">所有房間</button>
+                        </div>
+                    </div>
+                    <p id="roomListHint" class="text-sm text-gray-700 truncate mt-1"></p>
+                </div>
+                <div class="flex-1 overflow-y-auto room-list p-3 space-y-2" id="roomListContainer"></div>
+                <div class="p-4 border-t border-gray-200 bg-gray-50 space-y-3">
+                    <div class="bg-white p-3 rounded-lg shadow-sm">
+                        <h3 class="text-sm font-medium text-gray-700 mb-2"><i class="fas fa-plus-circle text-indigo-500 mr-1"></i>建立房間</h3>
+                        <input type="text" id="newRoomName" placeholder="房間名稱" class="w-full text-sm px-3 py-2 border border-gray-300 rounded-lg mb-2 focus:ring-1 focus:ring-indigo-200">
+                        <div class="flex items-center mb-2">
+                            <input type="text" id="newRoomPwd" placeholder="加密密碼 (可選)" class="flex-1 text-sm px-3 py-2 border border-gray-300 rounded-l-lg focus:ring-1 focus:ring-indigo-200">
+                            <span class="bg-gray-100 px-3 py-2 text-gray-500 text-xs border-t border-b border-r border-gray-300 rounded-r-lg"><i class="fas fa-lock"></i></span>
+                        </div>
+                        <button id="createRoomBtn" class="w-full bg-indigo-100 hover:bg-indigo-200 text-indigo-700 text-sm font-medium py-2 rounded-lg transition">建立房間</button>
+                    </div>
+                    <div class="bg-white p-3 rounded-lg shadow-sm">
+                        <h3 class="text-sm font-medium text-gray-700 mb-2"><i class="fas fa-door-open text-emerald-500 mr-1"></i>透過編號進入</h3>
+                        <div class="flex items-stretch">
+                            <input type="text" id="enterRoomId" placeholder="房間編號" class="flex-1 text-sm px-3 py-2 border border-gray-300 rounded-l-lg focus:ring-1 focus:ring-indigo-200">
+                            <button id="enterRoomByIdBtn" class="bg-emerald-100 hover:bg-emerald-200 text-emerald-700 px-4 py-2 text-sm rounded-r-lg transition"><i class="fas fa-arrow-right-to-bracket"></i></button>
+                        </div>
+                        <div class="mt-2">
+                            <input type="password" id="enterRoomPwd" placeholder="密碼 (管理員不需要)" class="w-full text-sm px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-indigo-200">
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- 右側主區域 -->
+            <main class="flex-1 flex flex-col bg-gray-50 transition-all duration-300">
+                <div class="bg-white px-6 py-2 border-b border-gray-200 flex justify-between items-center">
+                    <div id="mainTabs" class="flex space-x-4">
+                        <button id="chatMainTabBtn" class="py-2 px-1 text-sm font-medium text-indigo-600 border-b-2 border-indigo-600 transition">聊天</button>
+                        <button id="roomManageMainTabBtn" class="py-2 px-1 text-sm font-medium text-gray-500 hover:text-gray-700 transition hidden">房間管理</button>
+                        <button id="userManageMainTabBtn" class="py-2 px-1 text-sm font-medium text-gray-500 hover:text-gray-700 transition hidden">使用者管理</button>
+                    </div>
+                    <div id="currentRoomHeader" class="text-sm text-gray-600">
+                        <span id="currentRoomName" class="font-semibold text-gray-800">未選擇房間</span>
+                        <span id="currentRoomIdSpan" class="text-xs bg-gray-200 text-gray-600 ml-2 px-2 py-1 rounded-md"></span>
+                        <span id="roomLockBadge" class="hidden ml-2 text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-md"><i class="fas fa-lock"></i> 加密</span>
+                    </div>
+                </div>
+
+                <!-- 聊天主區域 -->
+                <div id="chatMainArea" class="flex-1 flex flex-col">
+                    <div class="bg-white px-6 py-1 border-b border-gray-200 flex space-x-4">
+                        <button id="chatSubTabBtn" class="sub-tab py-1 px-2 text-xs font-medium text-indigo-600 border-b-2 border-indigo-600">訊息</button>
+                        <button id="memberSubTabBtn" class="sub-tab py-1 px-2 text-xs font-medium text-gray-500 hover:text-gray-700 transition hidden">成員</button>
+                    </div>
+                    <div id="messageArea" class="flex-1 flex flex-col">
+                        <div id="loadMoreContainer" class="text-center py-2 hidden">
+                            <button id="loadMoreBtn" class="text-xs bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded-full">載入更多訊息</button>
+                        </div>
+                        <div id="messageList" class="flex-1 overflow-y-auto p-4 space-y-3 msg-list bg-gray-50"></div>
+                        <div id="messageInputArea" class="bg-white px-6 py-4 border-t border-gray-200 flex items-center space-x-2">
+                            <input type="file" id="imageUploadInput" accept="image/png, image/jpeg, image/gif, image/webp" class="hidden">
+                            <button id="uploadImageBtn" class="bg-gray-100 hover:bg-gray-200 text-gray-700 p-2.5 rounded-full w-10 h-10 flex items-center justify-center transition disabled:opacity-50 disabled:cursor-not-allowed" title="上傳圖片" disabled><i class="fas fa-image"></i></button>
+                            <button id="exportChatBtn" class="bg-gray-100 hover:bg-gray-200 text-gray-700 p-2.5 rounded-full w-10 h-10 flex items-center justify-center transition disabled:opacity-50 disabled:cursor-not-allowed" title="匯出聊天記錄" disabled><i class="fas fa-download"></i></button>
+                            <input type="text" id="messageInput" placeholder="輸入訊息..." class="flex-1 px-4 py-2.5 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-indigo-200" disabled>
+                            <button id="sendMessageBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white p-2.5 rounded-full w-10 h-10 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed" disabled><i class="fas fa-paper-plane"></i></button>
+                        </div>
+                    </div>
+                    <div id="memberArea" class="flex-1 hidden flex-col p-4 overflow-y-auto">
+                        <h2 class="text-lg font-semibold text-gray-800 mb-4 flex items-center"><i class="fas fa-users mr-2"></i>房間成員</h2>
+                        <div id="memberListContainer" class="space-y-2"></div>
+                    </div>
+                </div>
+
+                <!-- 房間管理主區域 -->
+                <div id="roomManageMainArea" class="flex-1 hidden flex-col p-4 overflow-y-auto">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-lg font-semibold text-gray-800 flex items-center"><i class="fas fa-door-open mr-2"></i>所有房間</h2>
+                        <button id="addRoomBtn" class="bg-green-600 hover:bg-green-700 text-white text-sm px-3 py-1 rounded-lg transition"><i class="fas fa-plus-circle mr-1"></i>新增房間</button>
+                    </div>
+                    <div class="mb-3">
+                        <input type="text" id="roomManageSearch" placeholder="搜尋房間名稱或ID..." class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-indigo-200">
+                    </div>
+                    <div id="roomManageList" class="space-y-2"></div>
+                </div>
+
+                <!-- 使用者管理主區域（含配置開關） -->
+                <div id="userManageMainArea" class="flex-1 hidden flex-col p-4 overflow-y-auto">
+                    <div id="adminConfigContainer" class="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm font-medium text-gray-700">允許一般使用者註冊管理員名稱 (wangsumyuen)</span>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="allowAdminNameCheckbox" class="sr-only peer">
+                                <div class="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-lg font-semibold text-gray-800 flex items-center"><i class="fas fa-users mr-2"></i>所有註冊使用者</h2>
+                        <button id="addUserBtn" class="bg-green-600 hover:bg-green-700 text-white text-sm px-3 py-1 rounded-lg transition"><i class="fas fa-user-plus mr-1"></i>新增使用者</button>
+                    </div>
+                    <div class="mb-3">
+                        <input type="text" id="userManageSearch" placeholder="搜尋使用者名稱..." class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-indigo-200">
+                    </div>
+                    <div id="userManageList" class="space-y-2"></div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- 圖片放大模態框 -->
+    <div id="imageModal" class="hidden fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4" onclick="this.classList.add('hidden')">
+        <img id="modalImage" src="" alt="預覽" class="max-w-full max-h-full rounded-lg shadow-2xl">
+    </div>
+
+    <!-- 修改資料模態框 -->
+    <div id="profileModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onclick="event.stopPropagation()">
+            <h3 class="text-xl font-bold text-gray-800 mb-4 flex items-center"><i class="fas fa-user-edit mr-2 text-indigo-600"></i>修改資料</h3>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm text-gray-600 mb-1">目前頭像</label>
+                    <img id="profileCurrentAvatar" src="" class="avatar border border-gray-300 mb-2">
+                    <label class="block text-sm text-gray-600 mb-1">新頭像 (可選)</label>
+                    <input type="file" id="profileAvatarInput" accept="image/png, image/jpeg, image/gif, image/webp" class="block w-full text-sm border border-gray-300 rounded-lg p-1">
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600 mb-1">新使用者名稱</label>
+                    <input type="text" id="profileNewUsername" placeholder="新名稱 (留空則不修改)" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 outline-none">
+                    <p id="profileUsernameMessage" class="text-xs text-red-500 h-4"></p>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600 mb-1">原密碼</label>
+                    <input type="password" id="profileOldPwd" placeholder="輸入原密碼" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 outline-none">
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600 mb-1">新密碼</label>
+                    <input type="password" id="profileNewPwd" placeholder="留空則不修改" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 outline-none">
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600 mb-1">確認新密碼</label>
+                    <input type="password" id="profileConfirmPwd" placeholder="再次輸入新密碼" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 outline-none">
+                </div>
+                <div class="flex justify-end space-x-3 pt-2">
+                    <button id="profileCancelBtn" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition">取消</button>
+                    <button id="profileSaveBtn" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition">儲存修改</button>
+                </div>
+                <div id="profileMessage" class="text-sm text-center text-red-500 h-5"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 新增房間模態框 -->
+    <div id="addRoomModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onclick="event.stopPropagation()">
+            <h3 class="text-xl font-bold text-gray-800 mb-4 flex items-center"><i class="fas fa-plus-circle mr-2 text-green-600"></i>新增房間</h3>
+            <div class="space-y-4">
+                <div><label class="block text-sm text-gray-600 mb-1">房間名稱</label><input type="text" id="addRoomName" placeholder="房間名稱" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 outline-none"></div>
+                <div><label class="block text-sm text-gray-600 mb-1">密碼 (可選)</label><input type="text" id="addRoomPwd" placeholder="加密密碼" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 outline-none"></div>
+                <div class="flex justify-end space-x-3 pt-2"><button id="addRoomCancelBtn" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition">取消</button><button id="addRoomSaveBtn" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition">建立房間</button></div>
+                <div id="addRoomMessage" class="text-sm text-center text-red-500 h-5"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 新增使用者模態框 -->
+    <div id="addUserModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onclick="event.stopPropagation()">
+            <h3 class="text-xl font-bold text-gray-800 mb-4 flex items-center"><i class="fas fa-user-plus mr-2 text-green-600"></i>新增使用者</h3>
+            <div class="space-y-4">
+                <div><label class="block text-sm text-gray-600 mb-1">使用者名稱</label><input type="text" id="addUsername" placeholder="使用者名稱" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 outline-none"></div>
+                <div><label class="block text-sm text-gray-600 mb-1">密碼</label><input type="password" id="addPassword" placeholder="密碼" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 outline-none"></div>
+                <div><label class="block text-sm text-gray-600 mb-1">頭像 (可選)</label><input type="file" id="addAvatarInput" accept="image/png, image/jpeg, image/gif, image/webp" class="block w-full text-sm border border-gray-300 rounded-lg p-1"><div id="addAvatarPreviewContainer" class="mt-2 hidden"><img id="addAvatarPreview" src="#" class="avatar border border-gray-300"></div></div>
+                <div class="flex justify-end space-x-3 pt-2"><button id="addUserCancelBtn" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition">取消</button><button id="addUserSaveBtn" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition">建立使用者</button></div>
+                <div id="addUserMessage" class="text-sm text-center text-red-500 h-5"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 編輯房間模態框 -->
+    <div id="editRoomModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onclick="event.stopPropagation()">
+            <h3 class="text-xl font-bold text-gray-800 mb-4 flex items-center"><i class="fas fa-edit mr-2 text-indigo-600"></i>編輯房間</h3>
+            <div class="space-y-4">
+                <div><label class="block text-sm text-gray-600 mb-1">房間名稱</label><input type="text" id="editRoomName" placeholder="房間名稱" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 outline-none"></div>
+                <div><label class="block text-sm text-gray-600 mb-1">密碼 (留空表示不加密)</label><input type="text" id="editRoomPwd" placeholder="新密碼" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 outline-none"></div>
+                <div class="flex justify-end space-x-3 pt-2"><button id="editRoomCancelBtn" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition">取消</button><button id="editRoomSaveBtn" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition">儲存</button></div>
+                <div id="editRoomMessage" class="text-sm text-center text-red-500 h-5"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 編輯使用者模態框 -->
+    <div id="editUserModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onclick="event.stopPropagation()">
+            <h3 class="text-xl font-bold text-gray-800 mb-4 flex items-center"><i class="fas fa-user-edit mr-2 text-indigo-600"></i>編輯使用者</h3>
+            <div class="space-y-4">
+                <div><label class="block text-sm text-gray-600 mb-1">目前頭像</label><img id="editUserCurrentAvatar" src="" class="avatar border border-gray-300 mb-2"><label class="block text-sm text-gray-600 mb-1">新頭像 (可選)</label><input type="file" id="editUserAvatarInput" accept="image/png, image/jpeg, image/gif, image/webp" class="block w-full text-sm border border-gray-300 rounded-lg p-1"></div>
+                <div><label class="block text-sm text-gray-600 mb-1">屏蔽狀態</label><select id="editUserBanned" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 outline-none"><option value="false">正常</option><option value="true">已屏蔽</option></select></div>
+                <div class="flex justify-end space-x-3 pt-2"><button id="editUserCancelBtn" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition">取消</button><button id="editUserSaveBtn" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition">儲存修改</button></div>
+                <div id="editUserMessage" class="text-sm text-center text-red-500 h-5"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        (function() {
+            "use strict";
+
+            // ========== Firebase 配置 (已使用您提供的設定) ==========
+            const firebaseConfig = {
+                apiKey: "AIzaSyAkTjnZhuBxT6GthD0qOLi7mjsGzMKOwV0",
+                authDomain: "david-cloud-chat.firebaseapp.com",
+                databaseURL: "https://david-cloud-chat-default-rtdb.asia-southeast1.firebasedatabase.app",
+                projectId: "david-cloud-chat",
+                storageBucket: "david-cloud-chat.firebasestorage.app",
+                messagingSenderId: "281013748690",
+                appId: "1:281013748690:web:ff39c75d751b15162a3e0b",
+                measurementId: "G-EJ3HE436L8"
+            };
+            // ======================================================
+
+            firebase.initializeApp(firebaseConfig);
+            const auth = firebase.auth();
+            const database = firebase.database();
+
+            // ---------- 全域變數 ----------
+            let currentUser = null;          // { uid, username, avatar, isAdmin, banned }
+            let currentRoomId = null;
+            let adminRoomViewMode = 'my';     // 'my' 或 'all'
+            let currentMainTab = 'chat';       // 'chat', 'roomManage', 'userManage'
+            let currentChatSubTab = 'message'; // 'message', 'member'
+            let currentMessageListener = null;
+
+            // 流量統計
+            let sentBytes = 0;
+            let receivedBytes = 0;
+            const KB = 1024;
+
+            // 發送頻率限制
+            let lastMessageTime = 0;
+            const MIN_INTERVAL = 1000; // 1秒
+
+            // 分頁載入
+            let messageLimit = 50;
+            let oldestMessageTime = null;
+            let hasMoreMessages = false;
+
+            // 使用者快取 (uid -> { username, avatar })
+            const userCache = {};
+
+            const DEFAULT_AVATAR = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='45' fill='%23cbd5e0'/%3E%3Ctext x='50' y='70' font-size='50' text-anchor='middle' fill='%234a5568' font-family='Arial'%3E👤%3C/text%3E%3C/svg%3E";
+
+            // ---------- 工具函式 ----------
+            function escapeHtml(text) {
+                if (!text) return '';
+                return String(text).replace(/[&<>"]/g, c => {
+                    if (c === '&') return '&amp;';
+                    if (c === '<') return '&lt;';
+                    if (c === '>') return '&gt;';
+                    if (c === '"') return '&quot;';
+                    return c;
+                });
+            }
+
+            function updateTrafficDisplay() {
+                const sentKB = (sentBytes / KB).toFixed(1);
+                const recvKB = (receivedBytes / KB).toFixed(1);
+                const el = document.getElementById('trafficDisplay');
+                if (el) el.innerText = `📤 ${sentKB}KB 📥 ${recvKB}KB`;
+            }
+
+            // 產生短房間ID (6位大寫字母數字)
+            function generateShortId(length = 6) {
+                const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+                let result = '';
+                for (let i = 0; i < length; i++) {
+                    result += chars.charAt(Math.floor(Math.random() * chars.length));
+                }
+                return result;
+            }
+
+            // Blob 轉 Base64
+            function blobToBase64(blob) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(blob);
+                });
+            }
+
+            // 壓縮圖片至目標KB以下 (預設50KB)
+            function compressImage(file, maxSizeKB = 50) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.readAsDataURL(file);
+                    reader.onload = (e) => {
+                        const img = new Image();
+                        img.src = e.target.result;
+                        img.onload = () => {
+                            const canvas = document.createElement('canvas');
+                            let width = img.width;
+                            let height = img.height;
+                            const maxDimension = 600;
+                            if (width > height && width > maxDimension) {
+                                height *= maxDimension / width;
+                                width = maxDimension;
+                            } else if (height > maxDimension) {
+                                width *= maxDimension / height;
+                                height = maxDimension;
+                            }
+                            canvas.width = width;
+                            canvas.height = height;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(img, 0, 0, width, height);
+                            canvas.toBlob((blob) => {
+                                if (blob.size > maxSizeKB * 1024) {
+                                    canvas.toBlob((blob2) => resolve(blob2), 'image/jpeg', 0.4);
+                                } else {
+                                    resolve(blob);
+                                }
+                            }, 'image/jpeg', 0.6);
+                        };
+                    };
+                    reader.onerror = reject;
+                });
+            }
+
+            // 從快取或資料庫取得使用者資料 (名稱+頭像)
+            async function getUserData(uid) {
+                if (userCache[uid]) return userCache[uid];
+                const snap = await database.ref('users/' + uid).once('value');
+                const data = snap.val();
+                if (data) {
+                    userCache[uid] = { username: data.username, avatar: data.avatar || DEFAULT_AVATAR };
+                    return userCache[uid];
+                }
+                return { username: '??', avatar: DEFAULT_AVATAR };
+            }
+
+            // 更新快取
+            function updateUserCache(uid, newData) {
+                if (userCache[uid]) {
+                    Object.assign(userCache[uid], newData);
+                } else {
+                    userCache[uid] = newData;
+                }
+            }
+
+            // 重新整理所有訊息 (使用者名稱變更時呼叫)
+            async function refreshAllMessages() {
+                if (!currentRoomId) return;
+                const container = document.getElementById('messageList');
+                const messages = Array.from(container.children);
+                for (let msgDiv of messages) {
+                    const uid = msgDiv.dataset.uid;
+                    if (uid) {
+                        const userData = await getUserData(uid);
+                        const nameSpan = msgDiv.querySelector('.msg-username');
+                        if (nameSpan) nameSpan.innerText = userData.username;
+                        const avatarImg = msgDiv.querySelector('.avatar-sm');
+                        if (avatarImg) avatarImg.src = userData.avatar;
+                    }
+                }
+            }
+
+            // ---------- 配置管理 (管理員開關) ----------
+            async function getAdminConfig() {
+                const snap = await database.ref('config/allowAdminNameForUsers').once('value');
+                return snap.exists() ? snap.val() : true; // 預設為 true (允許)
+            }
+
+            async function setAdminConfig(value) {
+                if (!currentUser?.isAdmin) return { success: false, msg: '僅管理員可修改' };
+                await database.ref('config/allowAdminNameForUsers').set(value);
+                return { success: true };
+            }
+
+            // ---------- Firebase 業務函式 ----------
+
+            // 註冊 (加入管理員名稱限制)
+            async function registerUser(username, password, avatarBase64) {
+                if (!username || !password) return { success: false, msg: '使用者名稱和密碼不能為空' };
+                const allowAdminName = await getAdminConfig();
+                if (username === 'wangsumyuen' && !allowAdminName) {
+                    return { success: false, msg: '管理員名稱目前不允許註冊' };
+                }
+                const email = username + '@chat.local';
+                try {
+                    const userCred = await auth.createUserWithEmailAndPassword(email, password);
+                    const uid = userCred.user.uid;
+                    await database.ref('users/' + uid).set({
+                        username: username,
+                        avatar: avatarBase64 || DEFAULT_AVATAR,
+                        createdAt: new Date().toISOString(),
+                        isAdmin: false,
+                        banned: false
+                    });
+                    userCache[uid] = { username, avatar: avatarBase64 || DEFAULT_AVATAR };
+                    return { success: true, msg: '註冊成功' };
+                } catch (error) {
+                    return { success: false, msg: error.message };
+                }
+            }
+
+            // 登入
+            async function loginUser(username, password) {
+                const email = username + '@chat.local';
+                try {
+                    const userCred = await auth.signInWithEmailAndPassword(email, password);
+                    const uid = userCred.user.uid;
+                    const snapshot = await database.ref('users/' + uid).once('value');
+                    let userData = snapshot.val();
+                    if (!userData) {
+                        // 若資料不存在，自動建立 (以防萬一)
+                        userData = {
+                            username: username,
+                            avatar: DEFAULT_AVATAR,
+                            createdAt: new Date().toISOString(),
+                            isAdmin: false,
+                            banned: false
+                        };
+                        await database.ref('users/' + uid).set(userData);
+                    }
+                    if (userData.banned) return { success: false, msg: '該帳號已被屏蔽，無法登入' };
+                    userCache[uid] = { username: userData.username, avatar: userData.avatar || DEFAULT_AVATAR };
+                    return { success: true, user: { ...userData, uid } };
+                } catch (error) {
+                    return { success: false, msg: '使用者名稱或密碼錯誤' };
+                }
+            }
+
+            // 取得所有使用者 (無密碼)
+            async function getAllUsers() {
+                const snapshot = await database.ref('users').once('value');
+                const users = [];
+                snapshot.forEach(child => {
+                    const u = child.val();
+                    u.uid = child.key;
+                    delete u.password;
+                    users.push(u);
+                });
+                return users;
+            }
+
+            // 使用者修改自己的資料 (名稱、頭像、密碼)
+            async function updateUserProfile(uid, oldPwd, newUsername, newPwd, newAvatar) {
+                const user = auth.currentUser;
+                if (!user) return { success: false, msg: '未登入' };
+                try {
+                    const credential = firebase.auth.EmailAuthProvider.credential(user.email, oldPwd);
+                    await user.reauthenticateWithCredential(credential);
+                } catch (e) {
+                    return { success: false, msg: '原密碼錯誤' };
+                }
+                if (newUsername && newUsername !== currentUser.username) {
+                    const usersSnap = await database.ref('users').orderByChild('username').equalTo(newUsername).once('value');
+                    if (usersSnap.exists()) {
+                        return { success: false, msg: '使用者名稱已存在' };
+                    }
+                }
+                if (newPwd) {
+                    try {
+                        await user.updatePassword(newPwd);
+                    } catch (e) {
+                        return { success: false, msg: e.message };
+                    }
+                }
+                const updates = {};
+                if (newUsername) updates.username = newUsername;
+                if (newAvatar) updates.avatar = newAvatar;
+                if (Object.keys(updates).length > 0) {
+                    await database.ref('users/' + uid).update(updates);
+                }
+                if (newUsername) updateUserCache(uid, { username: newUsername });
+                if (newAvatar) updateUserCache(uid, { avatar: newAvatar });
+                const snap = await database.ref('users/' + uid).once('value');
+                const updatedUser = snap.val();
+                if (newUsername) refreshAllMessages();
+                return { success: true, user: { ...updatedUser, uid } };
+            }
+
+            // 管理員更新使用者 (頭像、屏蔽狀態)
+            async function updateUserByAdmin(targetUid, newAvatar, banned) {
+                const targetSnap = await database.ref('users/' + targetUid).once('value');
+                const targetUser = targetSnap.val();
+                if (!targetUser) return { success: false, msg: '使用者不存在' };
+                if (targetUser.username === 'wangsumyuen') return { success: false, msg: '不能修改內建管理員' };
+                if (currentUser && currentUser.uid === targetUid) return { success: false, msg: '不能修改自己 (請使用資料修改)' };
+                const updates = {};
+                if (newAvatar !== undefined) updates.avatar = newAvatar;
+                if (banned !== undefined) updates.banned = banned;
+                await database.ref('users/' + targetUid).update(updates);
+                if (newAvatar) updateUserCache(targetUid, { avatar: newAvatar });
+                return { success: true };
+            }
+
+            // 管理員刪除使用者 (連同相關資料)
+            async function deleteUserByAdmin(targetUid) {
+                if (targetUid === currentUser.uid) return { success: false, msg: '不能刪除自己' };
+                const targetSnap = await database.ref('users/' + targetUid).once('value');
+                const targetUser = targetSnap.val();
+                if (!targetUser) return { success: false, msg: '使用者不存在' };
+                if (targetUser.username === 'wangsumyuen') return { success: false, msg: '不能刪除內建管理員' };
+                await database.ref('users/' + targetUid).remove();
+                // 刪除 roomUsers 中所有包含該使用者的項目
+                const roomUsersSnap = await database.ref('roomUsers').once('value');
+                const updates = {};
+                roomUsersSnap.forEach(roomChild => {
+                    if (roomChild.hasChild(targetUid)) {
+                        updates[`roomUsers/${roomChild.key}/${targetUid}`] = null;
+                    }
+                });
+                await database.ref().update(updates);
+                // 刪除該使用者的所有訊息
+                const messagesSnap = await database.ref('messages').once('value');
+                const msgUpdates = {};
+                messagesSnap.forEach(roomMsgs => {
+                    roomMsgs.forEach(msg => {
+                        if (msg.val().uid === targetUid) {
+                            msgUpdates[`messages/${roomMsgs.key}/${msg.key}`] = null;
+                        }
+                    });
+                });
+                await database.ref().update(msgUpdates);
+                delete userCache[targetUid];
+                return { success: true };
+            }
+
+            // 刪除訊息
+            async function deleteMessage(roomId, messageId) {
+                await database.ref(`messages/${roomId}/${messageId}`).remove();
+            }
+
+            // 匯出聊天記錄 (JSON)
+            async function exportRoomMessages(roomId) {
+                const snapshot = await database.ref('messages/' + roomId).once('value');
+                const messages = [];
+                snapshot.forEach(child => messages.push(child.val()));
+                if (!messages.length) return alert('目前房間沒有訊息可匯出');
+                const roomSnap = await database.ref('rooms/' + roomId).once('value');
+                const room = roomSnap.val();
+                const roomName = room ? room.name : roomId;
+                const dataStr = JSON.stringify(messages, null, 2);
+                const blob = new Blob([dataStr], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `chat_${roomName}_${new Date().toISOString().slice(0,10)}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+            }
+
+            // 取得房間成員 (含使用者資料)
+            async function getRoomMembers(roomId) {
+                const roomUsersSnap = await database.ref('roomUsers/' + roomId).once('value');
+                const uids = [];
+                roomUsersSnap.forEach(child => uids.push(child.key));
+                const members = [];
+                for (let uid of uids) {
+                    const userData = await getUserData(uid);
+                    members.push({ uid, ...userData });
+                }
+                return members;
+            }
+
+            // 取得使用者可存取的房間 (根據 roomUsers)
+            async function getAccessibleRoomsForUser(uid) {
+                const roomUsersSnap = await database.ref('roomUsers').once('value');
+                const roomIds = [];
+                roomUsersSnap.forEach(roomChild => {
+                    if (roomChild.hasChild(uid)) {
+                        roomIds.push(roomChild.key);
+                    }
+                });
+                if (roomIds.length === 0) return [];
+                const rooms = [];
+                for (let id of roomIds) {
+                    const roomSnap = await database.ref('rooms/' + id).once('value');
+                    if (roomSnap.exists()) rooms.push(roomSnap.val());
+                }
+                return rooms;
+            }
+
+            // 取得所有房間
+            async function getAllRooms() {
+                const snapshot = await database.ref('rooms').once('value');
+                const rooms = [];
+                snapshot.forEach(child => rooms.push(child.val()));
+                return rooms;
+            }
+
+            // 建立房間 (短ID)
+            async function createRoom(roomName, password, creator) {
+                if (!roomName.trim()) return { success: false, msg: '房間名稱不能為空' };
+                let roomId;
+                let exists = true;
+                let attempts = 0;
+                while (exists && attempts < 10) {
+                    roomId = generateShortId();
+                    const snap = await database.ref('rooms/' + roomId).once('value');
+                    exists = snap.exists();
+                    attempts++;
+                }
+                if (exists) return { success: false, msg: '無法產生唯一ID，請重試' };
+                const newRoom = {
+                    id: roomId,
+                    name: roomName.trim(),
+                    password: password || null,
+                    createdBy: creator.username,
+                    createdAt: new Date().toISOString()
+                };
+                await database.ref('rooms/' + roomId).set(newRoom);
+                await database.ref(`roomUsers/${roomId}/${creator.uid}`).set(true);
+                return { success: true, room: newRoom };
+            }
+
+            // 透過編號加入房間
+            async function joinRoomWithId(roomId, password, uid, isAdmin) {
+                const roomSnap = await database.ref('rooms/' + roomId).once('value');
+                const room = roomSnap.val();
+                if (!room) return { success: false, msg: '房間編號不存在' };
+                if (!isAdmin && room.password && room.password !== password) {
+                    return { success: false, msg: '密碼錯誤' };
+                }
+                await database.ref(`roomUsers/${roomId}/${uid}`).set(true);
+                return { success: true, room };
+            }
+
+            // 發送訊息 (只存 uid)
+            async function sendMessage(roomId, uid, content, type = 'text') {
+                if (!roomId) return;
+                if (type === 'text' && !content.trim()) return;
+                
+                const now = Date.now();
+                if (now - lastMessageTime < MIN_INTERVAL) {
+                    alert('發送太頻繁，請稍後再試');
+                    return;
+                }
+                if (type === 'text' && content.length > 15000) {
+                    alert('文字訊息不能超過15000字元');
+                    return;
+                }
+                if (type === 'image' && content.length > 40000) {
+                    alert('圖片檔案過大，請壓縮後再試');
+                    return;
+                }
+
+                lastMessageTime = now;
+
+                const msgRef = database.ref(`messages/${roomId}`).push();
+                await msgRef.set({
+                    uid: uid,
+                    content: content,
+                    type: type,
+                    timestamp: now
+                });
+
+                sentBytes += content.length;
+                updateTrafficDisplay();
+            }
+
+            // 管理員刪除房間
+            async function deleteRoomByAdmin(roomId) {
+                await database.ref('rooms/' + roomId).remove();
+                await database.ref('roomUsers/' + roomId).remove();
+                await database.ref('messages/' + roomId).remove();
+                return { success: true };
+            }
+
+            // 管理員更新房間 (名稱、密碼)
+            async function updateRoomByAdmin(roomId, newName, newPassword) {
+                const roomSnap = await database.ref('rooms/' + roomId).once('value');
+                const room = roomSnap.val();
+                if (!room) return { success: false, msg: '房間不存在' };
+                if (newName) room.name = newName.trim();
+                room.password = newPassword || null;
+                await database.ref('rooms/' + roomId).set(room);
+                return { success: true, room };
+            }
+
+            // ---------- UI 渲染 ----------
+
+            async function renderRoomList() {
+                if (!currentUser) return;
+                const isAdmin = currentUser.isAdmin;
+                let rooms = isAdmin
+                    ? (adminRoomViewMode === 'all' ? await getAllRooms() : await getAccessibleRoomsForUser(currentUser.uid))
+                    : await getAccessibleRoomsForUser(currentUser.uid);
+                const container = document.getElementById('roomListContainer');
+                const hint = document.getElementById('roomListHint');
+                if (isAdmin) {
+                    hint.innerHTML = adminRoomViewMode === 'all'
+                        ? '<i class="fas fa-eye mr-1"></i>管理員 · 所有房間'
+                        : '<i class="fas fa-user mr-1"></i>管理員 · 我的房間';
+                } else {
+                    hint.innerHTML = `<i class="fas fa-user mr-1"></i>${currentUser.username} 的可存取房間`;
+                }
+                if (rooms.length === 0) {
+                    container.innerHTML = '<div class="text-gray-400 text-sm p-4 text-center">暫無房間，建立或加入一個吧</div>';
+                    return;
+                }
+                let html = '';
+                rooms.forEach(room => {
+                    let isLocked = !!room.password;
+                    let activeClass = (currentRoomId === room.id) ? 'bg-indigo-50 border-indigo-300' : 'bg-white border-gray-200 hover:bg-gray-50';
+                    let lockIcon = isLocked ? '<i class="fas fa-lock text-amber-500 ml-1 text-xs"></i>' : '';
+                    html += `<div data-room-id="${room.id}" class="room-item flex justify-between items-center p-3 border rounded-lg cursor-pointer transition ${activeClass}">
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center">
+                                        <span class="font-medium text-gray-800 truncate">${escapeHtml(room.name)}</span> ${lockIcon}
+                                    </div>
+                                    <div class="text-xs text-gray-500 truncate">ID: ${room.id}</div>
+                                </div>
+                                ${isLocked ? '<span class="text-xs bg-amber-100 px-2 py-1 rounded-full">加密</span>' : ''}
+                            </div>`;
+                });
+                container.innerHTML = html;
+                document.querySelectorAll('.room-item').forEach(el => {
+                    el.addEventListener('click', () => switchRoom(el.dataset.roomId));
+                });
+            }
+
+            async function switchRoom(roomId) {
+                const roomSnap = await database.ref('rooms/' + roomId).once('value');
+                const room = roomSnap.val();
+                if (!room) return;
+                if (currentUser?.isAdmin) {
+                    await database.ref(`roomUsers/${roomId}/${currentUser.uid}`).set(true);
+                }
+                currentRoomId = room.id;
+                await renderRoomList();
+                document.getElementById('currentRoomName').innerText = room.name;
+                document.getElementById('currentRoomIdSpan').innerText = room.id;
+                document.getElementById('roomLockBadge').classList.toggle('hidden', !room.password);
+                document.getElementById('memberSubTabBtn').classList.remove('hidden');
+                if (currentChatSubTab === 'member') {
+                    await renderMemberList();
+                } else {
+                    await renderMessages(room.id);
+                }
+                document.getElementById('messageInput').disabled = false;
+                document.getElementById('sendMessageBtn').disabled = false;
+                document.getElementById('uploadImageBtn').disabled = false;
+                document.getElementById('exportChatBtn').disabled = false;
+                if (window.innerWidth < 768) toggleSidebar(false);
+            }
+
+            async function appendMessage(msg, key) {
+                const container = document.getElementById('messageList');
+                const userData = await getUserData(msg.uid);
+                const isSelf = msg.uid === currentUser.uid;
+                const align = isSelf ? 'justify-end' : 'justify-start';
+                const bg = isSelf ? 'bg-indigo-600 text-white' : 'bg-white border border-gray-200';
+                let contentHtml = msg.type === 'image'
+                    ? `<img src="${msg.content}" class="chat-image" onclick="event.stopPropagation(); document.getElementById('modalImage').src='${msg.content}'; document.getElementById('imageModal').classList.remove('hidden');" alt="圖片訊息">`
+                    : `<p class="text-sm break-words">${escapeHtml(msg.content) || ' '}</p>`;
+                let deleteBtn = (currentUser?.isAdmin) ?
+                    `<button class="delete-msg-btn ml-2 text-red-400 hover:text-red-600" title="刪除訊息" data-room-id="${currentRoomId}" data-msg-id="${key}"><i class="fas fa-trash-alt"></i></button>` : '';
+                let avatarImg = `<img src="${userData.avatar}" class="avatar-sm" onerror="this.src='${DEFAULT_AVATAR}'">`;
+                const div = document.createElement('div');
+                div.id = 'msg-' + key;
+                div.dataset.uid = msg.uid;
+                div.className = `flex ${align} items-end gap-2 mb-2`;
+                div.innerHTML = `
+                    ${!isSelf ? `<div class="flex-shrink-0">${avatarImg}</div>` : ''}
+                    <div class="max-w-[70%]">
+                        <div class="flex items-end gap-2">
+                            ${!isSelf ? '<span class="text-xs text-gray-600 font-medium msg-username">'+escapeHtml(userData.username)+'</span>' : ''}
+                            <div class="px-4 py-2 rounded-2xl shadow-sm ${bg} flex items-center">
+                                ${contentHtml}
+                                ${deleteBtn}
+                            </div>
+                            ${isSelf ? `<div class="flex-shrink-0">${avatarImg}</div>` : ''}
+                        </div>
+                        <p class="text-xs text-gray-400 mt-1 ${isSelf ? 'text-right' : 'text-left'}">${new Date(msg.timestamp).toLocaleTimeString()}</p>
+                    </div>
+                `;
+                container.appendChild(div);
+                if (deleteBtn) {
+                    div.querySelector('.delete-msg-btn').addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        const roomId = e.currentTarget.dataset.roomId;
+                        const msgId = e.currentTarget.dataset.msgId;
+                        if (confirm('確定刪除這則訊息嗎？')) {
+                            await database.ref(`messages/${roomId}/${msgId}`).remove();
+                            div.remove();
+                        }
+                    });
+                }
+            }
+
+            async function prependMessage(msg) {
+                const container = document.getElementById('messageList');
+                const userData = await getUserData(msg.uid);
+                const isSelf = msg.uid === currentUser.uid;
+                const align = isSelf ? 'justify-end' : 'justify-start';
+                const bg = isSelf ? 'bg-indigo-600 text-white' : 'bg-white border border-gray-200';
+                let contentHtml = msg.type === 'image'
+                    ? `<img src="${msg.content}" class="chat-image" onclick="event.stopPropagation(); document.getElementById('modalImage').src='${msg.content}'; document.getElementById('imageModal').classList.remove('hidden');" alt="圖片訊息">`
+                    : `<p class="text-sm break-words">${escapeHtml(msg.content) || ' '}</p>`;
+                let deleteBtn = (currentUser?.isAdmin) ?
+                    `<button class="delete-msg-btn ml-2 text-red-400 hover:text-red-600" title="刪除訊息" data-room-id="${currentRoomId}" data-msg-id="${msg.key}"><i class="fas fa-trash-alt"></i></button>` : '';
+                let avatarImg = `<img src="${userData.avatar}" class="avatar-sm" onerror="this.src='${DEFAULT_AVATAR}'">`;
+                const div = document.createElement('div');
+                div.id = 'msg-' + msg.key;
+                div.dataset.uid = msg.uid;
+                div.className = `flex ${align} items-end gap-2 mb-2`;
+                div.innerHTML = `
+                    ${!isSelf ? `<div class="flex-shrink-0">${avatarImg}</div>` : ''}
+                    <div class="max-w-[70%]">
+                        <div class="flex items-end gap-2">
+                            ${!isSelf ? '<span class="text-xs text-gray-600 font-medium msg-username">'+escapeHtml(userData.username)+'</span>' : ''}
+                            <div class="px-4 py-2 rounded-2xl shadow-sm ${bg} flex items-center">
+                                ${contentHtml}
+                                ${deleteBtn}
+                            </div>
+                            ${isSelf ? `<div class="flex-shrink-0">${avatarImg}</div>` : ''}
+                        </div>
+                        <p class="text-xs text-gray-400 mt-1 ${isSelf ? 'text-right' : 'text-left'}">${new Date(msg.timestamp).toLocaleTimeString()}</p>
+                    </div>
+                `;
+                container.insertBefore(div, container.firstChild);
+                if (deleteBtn) {
+                    div.querySelector('.delete-msg-btn').addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        const roomId = e.currentTarget.dataset.roomId;
+                        const msgId = e.currentTarget.dataset.msgId;
+                        if (confirm('確定刪除這則訊息嗎？')) {
+                            await database.ref(`messages/${roomId}/${msgId}`).remove();
+                            div.remove();
+                        }
+                    });
+                }
+            }
+
+            async function loadMoreMessages(roomId) {
+                if (!roomId || !hasMoreMessages) return;
+                let query = database.ref('messages/' + roomId).orderByChild('timestamp').limitToLast(messageLimit);
+                if (oldestMessageTime) query = query.endBefore(oldestMessageTime);
+                const snapshot = await query.once('value');
+                const msgs = [];
+                snapshot.forEach(child => msgs.push({ key: child.key, ...child.val() }));
+                if (msgs.length === 0) {
+                    hasMoreMessages = false;
+                    document.getElementById('loadMoreContainer').classList.add('hidden');
+                    return;
+                }
+                oldestMessageTime = msgs[0].timestamp;
+                msgs.reverse().forEach(msg => prependMessage(msg));
+                if (msgs.length < messageLimit) {
+                    hasMoreMessages = false;
+                    document.getElementById('loadMoreContainer').classList.add('hidden');
+                }
+            }
+
+            async function renderMessages(roomId) {
+                const container = document.getElementById('messageList');
+                container.innerHTML = '';
+                if (currentMessageListener) database.ref('messages/' + currentMessageListener).off();
+                currentMessageListener = roomId;
+                oldestMessageTime = null;
+                hasMoreMessages = true;
+                document.getElementById('loadMoreContainer').classList.remove('hidden');
+                const messagesRef = database.ref('messages/' + roomId).orderByChild('timestamp').limitToLast(messageLimit);
+                const snapshot = await messagesRef.once('value');
+                const msgs = [];
+                snapshot.forEach(child => msgs.push({ key: child.key, ...child.val() }));
+                if (msgs.length > 0) {
+                    oldestMessageTime = msgs[0].timestamp;
+                    msgs.forEach(msg => appendMessage(msg, msg.key));
+                    if (msgs.length < messageLimit) {
+                        hasMoreMessages = false;
+                        document.getElementById('loadMoreContainer').classList.add('hidden');
+                    }
+                } else {
+                    container.innerHTML = '<div class="text-center text-gray-400 text-sm mt-10">✨ 暫無訊息，發送第一條吧</div>';
+                    hasMoreMessages = false;
+                    document.getElementById('loadMoreContainer').classList.add('hidden');
+                }
+                database.ref('messages/' + roomId).orderByChild('timestamp').limitToLast(1).on('child_added', (snap) => {
+                    const msg = snap.val();
+                    if (!document.getElementById('msg-' + snap.key) && msg.timestamp > (oldestMessageTime || 0)) {
+                        appendMessage(msg, snap.key);
+                        receivedBytes += msg.content.length;
+                        updateTrafficDisplay();
+                        container.scrollTop = container.scrollHeight;
+                    }
+                });
+            }
+
+            async function renderMemberList() {
+                if (!currentRoomId) return;
+                const members = await getRoomMembers(currentRoomId);
+                const container = document.getElementById('memberListContainer');
+                if (members.length === 0) {
+                    container.innerHTML = '<div class="text-gray-400 text-sm p-4 text-center">暫無成員</div>';
+                    return;
+                }
+                let html = '';
+                members.forEach(u => {
+                    const isAdminUser = u.isAdmin ? '<span class="ml-2 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full"><i class="fas fa-crown"></i> 管理員</span>' : '';
+                    html += `<div class="flex items-center p-3 bg-white rounded-lg border border-gray-200 hover:shadow-sm transition">
+                                <img src="${u.avatar || DEFAULT_AVATAR}" class="avatar mr-3" onerror="this.src='${DEFAULT_AVATAR}'">
+                                <div class="flex-1">
+                                    <div class="flex items-center">
+                                        <span class="font-medium text-gray-800">${escapeHtml(u.username)}</span>
+                                        ${isAdminUser}
+                                    </div>
+                                </div>
+                            </div>`;
+                });
+                container.innerHTML = html;
+            }
+
+            async function renderRoomManageList() {
+                const searchInput = document.getElementById('roomManageSearch');
+                const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
+                let rooms = await getAllRooms();
+                if (searchTerm) rooms = rooms.filter(r => r.name.toLowerCase().includes(searchTerm) || r.id.toLowerCase().includes(searchTerm));
+                const container = document.getElementById('roomManageList');
+                let html = '';
+                for (let room of rooms) {
+                    html += `<div class="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-200">
+                        <div class="flex-1">
+                            <div class="font-medium">${escapeHtml(room.name)}</div>
+                            <div class="text-xs text-gray-500">ID: ${room.id} ${room.password ? '🔒' : ''}</div>
+                        </div>
+                        <div class="flex space-x-2">
+                            <button class="edit-room-btn text-blue-600 hover:text-blue-800" title="編輯" data-room-id="${room.id}" data-room-name="${escapeHtml(room.name)}" data-room-pwd="${room.password || ''}"><i class="fas fa-edit"></i></button>
+                            <button class="delete-room-btn text-red-600 hover:text-red-800" title="刪除" data-room-id="${room.id}"><i class="fas fa-trash-alt"></i></button>
+                        </div>
+                    </div>`;
+                }
+                container.innerHTML = html || '<p class="text-gray-500 text-center py-4">沒有找到房間</p>';
+                document.querySelectorAll('#roomManageList .edit-room-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const roomId = btn.dataset.roomId, roomName = btn.dataset.roomName, roomPwd = btn.dataset.roomPwd;
+                        document.getElementById('editRoomName').value = roomName;
+                        document.getElementById('editRoomPwd').value = roomPwd === 'null' ? '' : roomPwd;
+                        document.getElementById('editRoomMessage').innerText = '';
+                        const saveBtn = document.getElementById('editRoomSaveBtn');
+                        const newSaveBtn = saveBtn.cloneNode(true);
+                        saveBtn.parentNode.replaceChild(newSaveBtn, saveBtn);
+                        newSaveBtn.addEventListener('click', async () => {
+                            const newName = document.getElementById('editRoomName').value.trim();
+                            const newPwd = document.getElementById('editRoomPwd').value.trim();
+                            if (!newName) { document.getElementById('editRoomMessage').innerText = '房間名稱不能為空'; return; }
+                            const res = await updateRoomByAdmin(roomId, newName, newPwd);
+                            if (res.success) {
+                                alert('房間資訊已更新');
+                                document.getElementById('editRoomModal').classList.add('hidden');
+                                await renderRoomManageList();
+                                if (currentRoomId === roomId) {
+                                    document.getElementById('currentRoomName').innerText = newName;
+                                    document.getElementById('roomLockBadge').classList.toggle('hidden', !newPwd);
+                                }
+                                await renderRoomList();
+                            } else document.getElementById('editRoomMessage').innerText = res.msg;
+                        });
+                        document.getElementById('editRoomModal').classList.remove('hidden');
+                    });
+                });
+                document.querySelectorAll('#roomManageList .delete-room-btn').forEach(btn => {
+                    btn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        const roomId = btn.dataset.roomId;
+                        if (!confirm(`確定刪除房間 ${roomId} 嗎？`)) return;
+                        const res = await deleteRoomByAdmin(roomId);
+                        if (res.success) {
+                            alert('房間已刪除');
+                            if (currentRoomId === roomId) {
+                                currentRoomId = null;
+                                document.getElementById('currentRoomName').innerText = '未選擇房間';
+                                document.getElementById('currentRoomIdSpan').innerText = '';
+                                document.getElementById('roomLockBadge').classList.add('hidden');
+                                document.getElementById('memberSubTabBtn').classList.add('hidden');
+                                document.getElementById('messageInput').disabled = true;
+                                document.getElementById('sendMessageBtn').disabled = true;
+                                document.getElementById('uploadImageBtn').disabled = true;
+                                document.getElementById('exportChatBtn').disabled = true;
+                                document.getElementById('messageList').innerHTML = '<div class="text-center text-gray-400 text-sm mt-10">← 從左側選擇一個房間或建立房間</div>';
+                                if (currentChatSubTab === 'member') await switchChatSubTab('message');
+                            }
+                            await renderRoomList();
+                            await renderRoomManageList();
+                        } else alert(res.msg);
+                    });
+                });
+            }
+
+            async function renderUserManageList() {
+                const searchInput = document.getElementById('userManageSearch');
+                const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
+                let users = await getAllUsers();
+                if (searchTerm) users = users.filter(u => u.username.toLowerCase().includes(searchTerm));
+                const container = document.getElementById('userManageList');
+
+                // 讀取配置
+                const allowAdminName = await getAdminConfig();
+                const checkbox = document.getElementById('allowAdminNameCheckbox');
+                if (checkbox) {
+                    checkbox.checked = allowAdminName;
+                    const newCheckbox = checkbox.cloneNode(true);
+                    checkbox.parentNode.replaceChild(newCheckbox, checkbox);
+                    newCheckbox.addEventListener('change', async function(e) {
+                        const newValue = e.target.checked;
+                        const res = await setAdminConfig(newValue);
+                        if (!res.success) {
+                            alert(res.msg);
+                            e.target.checked = !newValue;
+                        } else {
+                            alert('設定已更新');
+                        }
+                    });
+                }
+
+                let html = '';
+                for (let u of users) {
+                    const isAdmin = u.isAdmin ? '<span class="ml-2 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">管理員</span>' : '';
+                    const bannedClass = u.banned ? 'line-through text-gray-400' : '';
+                    const bannedBadge = u.banned ? '<span class="ml-2 text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">已屏蔽</span>' : '';
+                    let editBtn = '', deleteBtn = '';
+                    if (u.username !== 'wangsumyuen' && u.username !== currentUser.username) {
+                        editBtn = `<button class="edit-user-btn ml-2 text-blue-600 hover:text-blue-800" title="編輯使用者" data-uid="${u.uid}" data-avatar="${u.avatar || DEFAULT_AVATAR}" data-banned="${u.banned}"><i class="fas fa-edit"></i></button>`;
+                        deleteBtn = `<button class="delete-user-btn ml-2 text-red-600 hover:text-red-800" title="刪除使用者" data-uid="${u.uid}"><i class="fas fa-trash-alt"></i></button>`;
+                    }
+                    html += `<div class="flex items-center p-3 bg-white rounded-lg border border-gray-200 ${bannedClass}">
+                        <img src="${u.avatar || DEFAULT_AVATAR}" class="avatar mr-3" onerror="this.src='${DEFAULT_AVATAR}'">
+                        <div class="flex-1">
+                            <div class="flex items-center flex-wrap">
+                                <span class="font-medium">${escapeHtml(u.username)}</span> ${isAdmin} ${bannedBadge}
+                            </div>
+                            <p class="text-xs text-gray-500">註冊: ${new Date(u.createdAt).toLocaleString()}</p>
+                        </div>
+                        <div class="flex">${editBtn}${deleteBtn}</div>
+                    </div>`;
+                }
+                container.innerHTML = html || '<p class="text-gray-500 text-center py-4">沒有找到使用者</p>';
+                document.querySelectorAll('#userManageList .edit-user-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const uid = btn.dataset.uid, currentAvatar = btn.dataset.avatar, banned = btn.dataset.banned === 'true';
+                        document.getElementById('editUserCurrentAvatar').src = currentAvatar;
+                        document.getElementById('editUserAvatarInput').value = '';
+                        document.getElementById('editUserBanned').value = banned ? 'true' : 'false';
+                        document.getElementById('editUserMessage').innerText = '';
+                        const saveBtn = document.getElementById('editUserSaveBtn');
+                        const newSaveBtn = saveBtn.cloneNode(true);
+                        saveBtn.parentNode.replaceChild(newSaveBtn, saveBtn);
+                        newSaveBtn.addEventListener('click', async () => {
+                            let newAvatar = null;
+                            if (document.getElementById('editUserAvatarInput').files.length > 0) {
+                                const file = document.getElementById('editUserAvatarInput').files[0];
+                                if (!file.type.startsWith('image/')) { document.getElementById('editUserMessage').innerText = '請選擇圖片檔案'; return; }
+                                if (file.size > 2 * 1024 * 1024) { document.getElementById('editUserMessage').innerText = '頭像大小不能超過2MB'; return; }
+                                newAvatar = await new Promise(r => { const reader = new FileReader(); reader.onload = e => r(e.target.result); reader.readAsDataURL(file); });
+                            }
+                            const banned = document.getElementById('editUserBanned').value === 'true';
+                            const res = await updateUserByAdmin(uid, newAvatar, banned);
+                            if (res.success) {
+                                alert('使用者資訊已更新');
+                                document.getElementById('editUserModal').classList.add('hidden');
+                                await renderUserManageList();
+                                if (currentRoomId) await renderMemberList();
+                            } else document.getElementById('editUserMessage').innerText = res.msg;
+                        });
+                        document.getElementById('editUserModal').classList.remove('hidden');
+                    });
+                });
+                document.querySelectorAll('#userManageList .delete-user-btn').forEach(btn => {
+                    btn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        const uid = btn.dataset.uid;
+                        if (!confirm(`確定刪除使用者 ${uid} 嗎？`)) return;
+                        const res = await deleteUserByAdmin(uid);
+                        if (res.success) {
+                            alert('使用者已刪除');
+                            await renderUserManageList();
+                            if (currentRoomId) { await renderMemberList(); await renderMessages(currentRoomId); }
+                        } else alert(res.msg);
+                    });
+                });
+            }
+
+            async function switchMainTab(tab) {
+                if (!currentUser) return;
+                currentMainTab = tab;
+                const chatMain = document.getElementById('chatMainArea'), roomMain = document.getElementById('roomManageMainArea'), userMain = document.getElementById('userManageMainArea');
+                const chatTab = document.getElementById('chatMainTabBtn'), roomTab = document.getElementById('roomManageMainTabBtn'), userTab = document.getElementById('userManageMainTabBtn');
+                chatMain.classList.add('hidden'); roomMain.classList.add('hidden'); userMain.classList.add('hidden');
+                [chatTab, roomTab, userTab].forEach(t => { if (t) { t.classList.remove('text-indigo-600', 'border-indigo-600'); t.classList.add('text-gray-500'); } });
+                if (tab === 'chat') {
+                    chatMain.classList.remove('hidden'); chatTab.classList.add('text-indigo-600', 'border-indigo-600');
+                    if (currentRoomId) { if (currentChatSubTab === 'message') await renderMessages(currentRoomId); else await renderMemberList(); }
+                } else if (tab === 'roomManage' && currentUser.isAdmin) {
+                    roomMain.classList.remove('hidden'); roomTab.classList.add('text-indigo-600', 'border-indigo-600'); await renderRoomManageList();
+                } else if (tab === 'userManage' && currentUser.isAdmin) {
+                    userMain.classList.remove('hidden'); userTab.classList.add('text-indigo-600', 'border-indigo-600'); await renderUserManageList();
+                }
+            }
+
+            async function switchChatSubTab(subTab) {
+                if (!currentUser || currentMainTab !== 'chat') return;
+                currentChatSubTab = subTab;
+                const messageArea = document.getElementById('messageArea'), memberArea = document.getElementById('memberArea');
+                const msgSubTab = document.getElementById('chatSubTabBtn'), memberSubTab = document.getElementById('memberSubTabBtn');
+                if (subTab === 'message') {
+                    messageArea.classList.remove('hidden'); memberArea.classList.add('hidden');
+                    msgSubTab.classList.add('text-indigo-600', 'border-indigo-600'); memberSubTab.classList.remove('text-indigo-600', 'border-indigo-600');
+                    if (currentRoomId) await renderMessages(currentRoomId);
+                } else {
+                    messageArea.classList.add('hidden'); memberArea.classList.remove('hidden');
+                    memberSubTab.classList.add('text-indigo-600', 'border-indigo-600'); msgSubTab.classList.remove('text-indigo-600', 'border-indigo-600');
+                    if (currentRoomId) await renderMemberList();
+                }
+            }
+
+            function updateAdminToggleUI() {
+                if (!currentUser?.isAdmin) return;
+                const myBtn = document.getElementById('showMyRoomsBtn'), allBtn = document.getElementById('showAllRoomsBtn');
+                if (adminRoomViewMode === 'my') {
+                    myBtn.classList.add('bg-indigo-100', 'text-indigo-700'); myBtn.classList.remove('bg-gray-100', 'text-gray-700');
+                    allBtn.classList.add('bg-gray-100', 'text-gray-700'); allBtn.classList.remove('bg-indigo-100', 'text-indigo-700');
+                } else {
+                    allBtn.classList.add('bg-indigo-100', 'text-indigo-700'); allBtn.classList.remove('bg-gray-100', 'text-gray-700');
+                    myBtn.classList.add('bg-gray-100', 'text-gray-700'); myBtn.classList.remove('bg-indigo-100', 'text-indigo-700');
+                }
+            }
+
+            window.toggleSidebar = function(force) {
+                const sidebar = document.getElementById('sidebar'), overlay = document.getElementById('sidebarOverlay');
+                if (force !== undefined) {
+                    if (force) { sidebar.classList.add('open'); overlay.classList.add('open'); }
+                    else { sidebar.classList.remove('open'); overlay.classList.remove('open'); }
+                } else { sidebar.classList.toggle('open'); overlay.classList.toggle('open'); }
+            };
+
+            async function logout() {
+                currentUser = null; currentRoomId = null; adminRoomViewMode = 'my'; currentMainTab = 'chat'; currentChatSubTab = 'message';
+                document.getElementById('chatPage').classList.add('hidden'); document.getElementById('loginPage').classList.remove('hidden');
+                if (currentMessageListener) database.ref('messages/' + currentMessageListener).off();
+                document.getElementById('imageUploadInput').value = ''; document.getElementById('memberSubTabBtn').classList.add('hidden');
+                toggleSidebar(false); sentBytes = 0; receivedBytes = 0; updateTrafficDisplay();
+            }
+
+            async function showChat(user) {
+                currentUser = user; adminRoomViewMode = 'my'; currentMainTab = 'chat'; currentChatSubTab = 'message';
+                document.getElementById('loginPage').classList.add('hidden'); document.getElementById('chatPage').classList.remove('hidden');
+                document.getElementById('navUsername').innerText = user.username;
+                const navAvatar = document.getElementById('navAvatar'); navAvatar.src = user.avatar || DEFAULT_AVATAR; navAvatar.classList.remove('hidden');
+                navAvatar.onerror = () => { navAvatar.src = DEFAULT_AVATAR; };
+                const toggleDiv = document.getElementById('adminRoomToggle'), roomManageTab = document.getElementById('roomManageMainTabBtn'), userManageTab = document.getElementById('userManageMainTabBtn');
+                if (user.isAdmin) {
+                    toggleDiv.classList.remove('hidden'); roomManageTab.classList.remove('hidden'); userManageTab.classList.remove('hidden');
+                    document.getElementById('adminBadge').classList.remove('hidden'); updateAdminToggleUI();
+                } else {
+                    toggleDiv.classList.add('hidden'); roomManageTab.classList.add('hidden'); userManageTab.classList.add('hidden');
+                    document.getElementById('adminBadge').classList.add('hidden');
+                }
+                document.getElementById('memberSubTabBtn').classList.add('hidden');
+                await switchMainTab('chat'); currentRoomId = null; await renderRoomList();
+                document.getElementById('messageInput').disabled = true; document.getElementById('sendMessageBtn').disabled = true;
+                document.getElementById('uploadImageBtn').disabled = true; document.getElementById('exportChatBtn').disabled = true;
+                document.getElementById('messageList').innerHTML = '<div class="text-center text-gray-400 text-sm mt-10">← 從左側選擇一個房間或建立房間</div>';
+                document.getElementById('currentRoomName').innerText = '未選擇房間'; document.getElementById('currentRoomIdSpan').innerText = '';
+                document.getElementById('roomLockBadge').classList.add('hidden');
+            }
+
+            function bindEvents() {
+                document.getElementById('loginTabBtn').addEventListener('click', function(){
+                    document.getElementById('loginForm').classList.remove('hidden'); document.getElementById('registerForm').classList.add('hidden');
+                    this.classList.add('text-indigo-600', 'border-indigo-600'); document.getElementById('registerTabBtn').classList.remove('text-indigo-600', 'border-indigo-600');
+                    document.getElementById('registerTabBtn').classList.add('text-gray-500');
+                });
+                document.getElementById('registerTabBtn').addEventListener('click', function(){
+                    document.getElementById('registerForm').classList.remove('hidden'); document.getElementById('loginForm').classList.add('hidden');
+                    this.classList.add('text-indigo-600', 'border-indigo-600'); document.getElementById('loginTabBtn').classList.remove('text-indigo-600', 'border-indigo-600');
+                    document.getElementById('loginTabBtn').classList.add('text-gray-500');
+                });
+
+                const regAvatarBtn = document.getElementById('regAvatarBtn'), regAvatarInput = document.getElementById('regAvatarInput'), avatarFileName = document.getElementById('avatarFileName'), avatarPreviewContainer = document.getElementById('avatarPreviewContainer'), avatarPreviewImg = document.getElementById('avatarPreviewImg');
+                regAvatarBtn.addEventListener('click', () => regAvatarInput.click());
+                regAvatarInput.addEventListener('change', function(e) {
+                    const file = e.target.files[0];
+                    if (!file) { avatarFileName.innerText = '未選擇檔案'; avatarPreviewContainer.classList.add('hidden'); return; }
+                    avatarFileName.innerText = file.name;
+                    const reader = new FileReader(); reader.onload = (ev) => { avatarPreviewImg.src = ev.target.result; avatarPreviewContainer.classList.remove('hidden'); }; reader.readAsDataURL(file);
+                });
+
+                document.getElementById('registerBtn').addEventListener('click', async function(){
+                    let username = document.getElementById('regUsername').value.trim(), password = document.getElementById('regPassword').value.trim();
+                    let avatarBase64 = null;
+                    if (regAvatarInput.files.length > 0) {
+                        const file = regAvatarInput.files[0];
+                        if (!file.type.startsWith('image/')) { alert('請選擇圖片檔案'); return; }
+                        if (file.size > 2 * 1024 * 1024) { alert('頭像大小不能超過2MB'); return; }
+                        const compressedBlob = await compressImage(file, 50);
+                        avatarBase64 = await blobToBase64(compressedBlob);
+                    }
+                    let res = await registerUser(username, password, avatarBase64);
+                    if (res.success) {
+                        alert('註冊成功！請登入'); document.getElementById('loginTabBtn').click();
+                        document.getElementById('loginUsername').value = username; document.getElementById('loginPassword').value = '';
+                        document.getElementById('regUsername').value = ''; document.getElementById('regPassword').value = '';
+                        regAvatarInput.value = ''; avatarFileName.innerText = '未選擇檔案'; avatarPreviewContainer.classList.add('hidden');
+                    } else {
+                        alert(res.msg);
+                    }
+                });
+
+                document.getElementById('loginBtn').addEventListener('click', async function(){
+                    let username = document.getElementById('loginUsername').value.trim(), password = document.getElementById('loginPassword').value.trim();
+                    let res = await loginUser(username, password);
+                    if (res.success) { await showChat(res.user); document.getElementById('loginMessage').innerText = ''; }
+                    else document.getElementById('loginMessage').innerText = res.msg;
+                });
+
+                document.getElementById('logoutBtn').addEventListener('click', logout);
+
+                document.getElementById('createRoomBtn').addEventListener('click', async function(){
+                    if (!currentUser) return;
+                    let roomName = document.getElementById('newRoomName').value.trim(), pwd = document.getElementById('newRoomPwd').value.trim() || null;
+                    let res = await createRoom(roomName, pwd, currentUser);
+                    if (res.success) {
+                        document.getElementById('newRoomName').value = ''; document.getElementById('newRoomPwd').value = '';
+                        await renderRoomList(); await switchRoom(res.room.id);
+                    } else alert(res.msg);
+                });
+
+                document.getElementById('enterRoomByIdBtn').addEventListener('click', async function(){
+                    if (!currentUser) return;
+                    let roomId = document.getElementById('enterRoomId').value.trim(), pwd = document.getElementById('enterRoomPwd').value.trim();
+                    if (!roomId) { alert('請輸入房間編號'); return; }
+                    let res = await joinRoomWithId(roomId, pwd, currentUser.uid, currentUser.isAdmin);
+                    if (res.success) {
+                        document.getElementById('enterRoomId').value = ''; document.getElementById('enterRoomPwd').value = '';
+                        await renderRoomList(); await switchRoom(res.room.id);
+                    } else alert(res.msg);
+                });
+
+                document.getElementById('sendMessageBtn').addEventListener('click', async function(){
+                    let msg = document.getElementById('messageInput').value;
+                    if (!currentRoomId || !msg.trim() || !currentUser) return;
+                    await sendMessage(currentRoomId, currentUser.uid, msg, 'text');
+                    document.getElementById('messageInput').value = '';
+                });
+                document.getElementById('messageInput').addEventListener('keypress', function(e){ if (e.key === 'Enter') document.getElementById('sendMessageBtn').click(); });
+
+                const uploadBtn = document.getElementById('uploadImageBtn'), fileInput = document.getElementById('imageUploadInput');
+                uploadBtn.addEventListener('click', function(){ if (!currentRoomId) { alert('請先選擇一個房間'); return; } fileInput.click(); });
+                fileInput.addEventListener('change', async function(e) {
+                    const file = e.target.files[0]; if (!file) return;
+                    if (!file.type.startsWith('image/')) { alert('請選擇圖片檔案'); fileInput.value = ''; return; }
+                    if (file.size > 2 * 1024 * 1024) { alert('圖片大小不能超過2MB'); fileInput.value = ''; return; }
+                    const compressedBlob = await compressImage(file, 50);
+                    const reader = new FileReader(); reader.readAsDataURL(compressedBlob);
+                    reader.onload = async (event) => { await sendMessage(currentRoomId, currentUser.uid, event.target.result, 'image'); fileInput.value = ''; };
+                });
+
+                document.getElementById('showMyRoomsBtn').addEventListener('click', async function(){
+                    if (!currentUser?.isAdmin) return; adminRoomViewMode = 'my'; updateAdminToggleUI(); await renderRoomList();
+                });
+                document.getElementById('showAllRoomsBtn').addEventListener('click', async function(){
+                    if (!currentUser?.isAdmin) return; adminRoomViewMode = 'all'; updateAdminToggleUI(); await renderRoomList();
+                });
+
+                document.getElementById('chatMainTabBtn').addEventListener('click', async function(){ await switchMainTab('chat'); });
+                document.getElementById('roomManageMainTabBtn').addEventListener('click', async function(){ if (!currentUser?.isAdmin) return; await switchMainTab('roomManage'); });
+                document.getElementById('userManageMainTabBtn').addEventListener('click', async function(){ if (!currentUser?.isAdmin) return; await switchMainTab('userManage'); });
+
+                document.getElementById('chatSubTabBtn').addEventListener('click', async function(){ await switchChatSubTab('message'); });
+                document.getElementById('memberSubTabBtn').addEventListener('click', async function(){ if (!currentRoomId) { alert('請先選擇一個房間'); return; } await switchChatSubTab('member'); });
+
+                document.getElementById('exportChatBtn').addEventListener('click', async function(){ if (!currentRoomId) { alert('請先選擇一個房間'); return; } await exportRoomMessages(currentRoomId); });
+                document.getElementById('loadMoreBtn').addEventListener('click', async function(){ if (currentRoomId) await loadMoreMessages(currentRoomId); });
+                document.getElementById('menuToggleBtn').addEventListener('click', function(){ toggleSidebar(); });
+                document.getElementById('sidebarOverlay').addEventListener('click', function(){ toggleSidebar(false); });
+
+                const profileModal = document.getElementById('profileModal'), editProfileBtn = document.getElementById('editProfileBtn'), profileCancelBtn = document.getElementById('profileCancelBtn'), profileSaveBtn = document.getElementById('profileSaveBtn'), profileCurrentAvatar = document.getElementById('profileCurrentAvatar'), profileAvatarInput = document.getElementById('profileAvatarInput'), profileNewUsername = document.getElementById('profileNewUsername'), profileUsernameMessage = document.getElementById('profileUsernameMessage'), profileOldPwd = document.getElementById('profileOldPwd'), profileNewPwd = document.getElementById('profileNewPwd'), profileConfirmPwd = document.getElementById('profileConfirmPwd'), profileMessage = document.getElementById('profileMessage');
+                editProfileBtn.addEventListener('click', function(){
+                    if (!currentUser) return;
+                    profileCurrentAvatar.src = currentUser.avatar || DEFAULT_AVATAR; profileNewUsername.value = ''; profileUsernameMessage.innerText = '';
+                    profileOldPwd.value = ''; profileNewPwd.value = ''; profileConfirmPwd.value = ''; profileAvatarInput.value = ''; profileMessage.innerText = '';
+                    profileModal.classList.remove('hidden');
+                });
+                profileCancelBtn.addEventListener('click', function(){ profileModal.classList.add('hidden'); });
+                profileSaveBtn.addEventListener('click', async function(){
+                    let oldPwd = profileOldPwd.value.trim(), newUsername = profileNewUsername.value.trim() || null, newPwd = profileNewPwd.value.trim() || null, confirmPwd = profileConfirmPwd.value.trim();
+                    if (!oldPwd) { profileMessage.innerText = '請輸入原密碼'; return; }
+                    if (newPwd && newPwd !== confirmPwd) { profileMessage.innerText = '新密碼與確認密碼不一致'; return; }
+                    let newAvatar = null;
+                    if (profileAvatarInput.files.length > 0) {
+                        const file = profileAvatarInput.files[0];
+                        if (!file.type.startsWith('image/')) { profileMessage.innerText = '請選擇圖片檔案'; return; }
+                        if (file.size > 2 * 1024 * 1024) { profileMessage.innerText = '頭像大小不能超過2MB'; return; }
+                        const compressedBlob = await compressImage(file, 50);
+                        newAvatar = await blobToBase64(compressedBlob);
+                    }
+                    async function performUpdate() {
+                        const res = await updateUserProfile(currentUser.uid, oldPwd, newUsername, newPwd, newAvatar);
+                        if (res.success) {
+                            alert('資料修改成功'); currentUser = res.user;
+                            document.getElementById('navAvatar').src = currentUser.avatar || DEFAULT_AVATAR; document.getElementById('navUsername').innerText = currentUser.username;
+                            profileModal.classList.add('hidden');
+                            if (newUsername) updateUserCache(currentUser.uid, { username: newUsername });
+                            if (newAvatar) updateUserCache(currentUser.uid, { avatar: newAvatar });
+                            if (currentRoomId) { if (currentChatSubTab === 'member') await renderMemberList(); else await renderMessages(currentRoomId); }
+                        } else profileMessage.innerText = res.msg;
+                    }
+                    await performUpdate();
+                });
+                profileModal.addEventListener('click', function(e){ if (e.target === profileModal) profileModal.classList.add('hidden'); });
+
+                document.getElementById('addRoomBtn').addEventListener('click', function(){
+                    document.getElementById('addRoomName').value = ''; document.getElementById('addRoomPwd').value = ''; document.getElementById('addRoomMessage').innerText = ''; document.getElementById('addRoomModal').classList.remove('hidden');
+                });
+                document.getElementById('addRoomCancelBtn').addEventListener('click', function(){ document.getElementById('addRoomModal').classList.add('hidden'); });
+                document.getElementById('addRoomSaveBtn').addEventListener('click', async function(){
+                    let roomName = document.getElementById('addRoomName').value.trim(), pwd = document.getElementById('addRoomPwd').value.trim() || null;
+                    if (!roomName) { document.getElementById('addRoomMessage').innerText = '房間名稱不能為空'; return; }
+                    let res = await createRoom(roomName, pwd, currentUser);
+                    if (res.success) {
+                        alert('房間建立成功'); document.getElementById('addRoomModal').classList.add('hidden');
+                        await renderRoomManageList(); await renderRoomList();
+                    } else document.getElementById('addRoomMessage').innerText = res.msg;
+                });
+
+                document.getElementById('addUserBtn').addEventListener('click', function(){
+                    document.getElementById('addUsername').value = ''; document.getElementById('addPassword').value = ''; document.getElementById('addAvatarInput').value = '';
+                    document.getElementById('addAvatarPreviewContainer').classList.add('hidden'); document.getElementById('addUserMessage').innerText = ''; document.getElementById('addUserModal').classList.remove('hidden');
+                });
+                document.getElementById('addUserCancelBtn').addEventListener('click', function(){ document.getElementById('addUserModal').classList.add('hidden'); });
+                document.getElementById('addUserSaveBtn').addEventListener('click', async function(){
+                    let username = document.getElementById('addUsername').value.trim(), password = document.getElementById('addPassword').value.trim();
+                    if (!username || !password) { document.getElementById('addUserMessage').innerText = '使用者名稱和密碼不能為空'; return; }
+                    let avatarBase64 = null;
+                    if (document.getElementById('addAvatarInput').files.length > 0) {
+                        const file = document.getElementById('addAvatarInput').files[0];
+                        if (!file.type.startsWith('image/')) { document.getElementById('addUserMessage').innerText = '請選擇圖片檔案'; return; }
+                        if (file.size > 2 * 1024 * 1024) { document.getElementById('addUserMessage').innerText = '頭像大小不能超過2MB'; return; }
+                        const compressedBlob = await compressImage(file, 50);
+                        avatarBase64 = await blobToBase64(compressedBlob);
+                    }
+                    let res = await registerUser(username, password, avatarBase64);
+                    if (res.success) { alert('使用者建立成功'); document.getElementById('addUserModal').classList.add('hidden'); await renderUserManageList(); }
+                    else document.getElementById('addUserMessage').innerText = res.msg;
+                });
+
+                document.getElementById('roomManageSearch').addEventListener('input', async () => { if (currentMainTab === 'roomManage') await renderRoomManageList(); });
+                document.getElementById('userManageSearch').addEventListener('input', async () => { if (currentMainTab === 'userManage') await renderUserManageList(); });
+
+                document.getElementById('editRoomCancelBtn').addEventListener('click', function(){ document.getElementById('editRoomModal').classList.add('hidden'); });
+                document.getElementById('editRoomModal').addEventListener('click', function(e){ if (e.target === document.getElementById('editRoomModal')) document.getElementById('editRoomModal').classList.add('hidden'); });
+                document.getElementById('editUserCancelBtn').addEventListener('click', function(){ document.getElementById('editUserModal').classList.add('hidden'); });
+                document.getElementById('editUserModal').addEventListener('click', function(e){ if (e.target === document.getElementById('editUserModal')) document.getElementById('editUserModal').classList.add('hidden'); });
+            }
+
+            auth.onAuthStateChanged(async (user) => {
+                if (user) {
+                    const snapshot = await database.ref('users/' + user.uid).once('value');
+                    const userData = snapshot.val();
+                    if (userData && !userData.banned) {
+                        currentUser = { ...userData, uid: user.uid };
+                        userCache[user.uid] = { username: userData.username, avatar: userData.avatar || DEFAULT_AVATAR };
+                        showChat(currentUser);
+                    } else {
+                        auth.signOut();
+                    }
+                } else {
+                    showLogin();
+                }
+            });
+
+            function showLogin() {
+                document.getElementById('loginPage').classList.remove('hidden');
+                document.getElementById('chatPage').classList.add('hidden');
+                currentUser = null;
+                currentRoomId = null;
+            }
+
+            // 注意：沒有自動建立管理員，請手動在 Firebase 控制台建立
+            // 管理員帳號: wangsumyuen@chat.local 密碼: wsy677620131030
+            // 並在資料庫 users/{uid} 中設定 isAdmin: true
+
+            bindEvents();
+        })();
+    </script>
+</body>
+</html>
